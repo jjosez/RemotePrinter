@@ -1,14 +1,15 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
-
+using System.Text;
 
 namespace RemotePrinter
 {
     public class RawPrinterHelper
     {
         // Structure and API declarions:
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         public class DOCINFOA
         {
             [MarshalAs(UnmanagedType.LPStr)]
@@ -18,13 +19,13 @@ namespace RemotePrinter
             [MarshalAs(UnmanagedType.LPStr)]
             public string pDataType;
         }
-        [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+        [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Auto, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
         public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
 
         [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
         public static extern bool ClosePrinter(IntPtr hPrinter);
 
-        [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+        [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Auto, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
         public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
 
         [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
@@ -50,7 +51,7 @@ namespace RemotePrinter
             DOCINFOA di = new DOCINFOA();
             bool bSuccess = false; // Assume failure unless you specifically succeed.
 
-            di.pDocName = "My C#.NET RAW Document";
+            di.pDocName = "Facturascripts Ticket"; 
             di.pDataType = "RAW";
 
             // Open the printer.
@@ -77,6 +78,18 @@ namespace RemotePrinter
                 dwError = Marshal.GetLastWin32Error();
             }
             return bSuccess;
+        }
+
+        public static bool SendBytesToPrinter(string szPrinterName, byte[] data)
+        {
+            bool retval = false;
+
+            IntPtr pUnmanagedBytes = Marshal.AllocCoTaskMem(data.Length); // Allocate unmanaged memory
+            Marshal.Copy(data, 0, pUnmanagedBytes, data.Length); // copy bytes into unmanaged memory
+            retval = SendBytesToPrinter(szPrinterName, pUnmanagedBytes, data.Length);//Send bytes to printer
+
+            Marshal.FreeCoTaskMem(pUnmanagedBytes); // Free the allocated unmanaged memory
+            return retval;
         }
 
         public static bool SendFileToPrinter(string szPrinterName, string szFileName)
@@ -106,18 +119,102 @@ namespace RemotePrinter
             return bSuccess;
         }
         public static bool SendStringToPrinter(string szPrinterName, string szString)
+        {            
+            byte[] byteData = Encoding.UTF8.GetBytes(szString);         
+           
+            SendBytesToPrinter(szPrinterName, byteData);
+            return true;
+        }
+
+        public static bool SendStringToPrinterISO(string szPrinterName, string szString)
+        {
+            byte[] byteData = Encoding.GetEncoding("ISO-8859-1").GetBytes(szString);
+            //getBytes("ISO-8859-1");
+
+            codeTable(szPrinterName, 40);
+            SendBytesToPrinter(szPrinterName, byteData);
+            return true;
+        }
+
+        public static bool SendStringToPrinterOld(string szPrinterName, string szString)
         {
             IntPtr pBytes;
             Int32 dwCount;
+            
             // How many characters are in the string?
             dwCount = szString.Length;
             // Assume that the printer is expecting ANSI text, and then convert
             // the string to ANSI text.
-            pBytes = Marshal.StringToCoTaskMemAnsi(szString);
+            pBytes = Marshal.StringToCoTaskMemAnsi(szString);            
+            
             // Send the converted ANSI string to the printer.
             SendBytesToPrinter(szPrinterName, pBytes, dwCount);
             Marshal.FreeCoTaskMem(pBytes);
             return true;
         }
+
+        public static bool SendUTF8StringToPrinter(string szPrinterName, string szString, int num = 1)
+        {           
+            Int32 dwCount;
+            byte[] aBytes;
+            var enc = new UTF8Encoding(true, true);
+            aBytes = enc.GetBytes(szString);
+
+            // How many characters are in the string?
+            dwCount = aBytes.Length;
+            IntPtr pBytes = Marshal.AllocCoTaskMem(dwCount);
+            // Assume that the printer is expecting ANSI text, and then convert
+            // the string to ANSI text.
+            Marshal.Copy(aBytes, 0, pBytes, dwCount);
+            // Send the converted ANSI string to the printer.
+            for (var i = 1; i <= num; i++)
+                if (!SendBytesToPrinter(szPrinterName, pBytes, dwCount))
+                {
+                    Marshal.FreeCoTaskMem(pBytes);
+                    return false;
+                }
+            Marshal.FreeCoTaskMem(pBytes);
+            return true;
+        }
+
+        //Select an international character set
+        public static bool charSet(String szPrinterName, int language)
+        {
+            //function ESC R n
+            //0-USA
+            //12-Latin America
+            //
+            int[] char_set = { 27, 82, language };
+
+            RawPrinterHelper.SendBytesToPrinter(szPrinterName, intTobyte(char_set));
+
+            return true;
+
+        }
+
+
+        //select character code table
+        public static bool codeTable(String szPrinterName, int language)
+        {
+            //function Esc t n
+            // 0 - PC437 (USA: Standard Europe)]
+            // 40 [ISO8859-15 (Latin9)]
+            // 3 [PC860 (Portuguese)]
+
+            int[] code = { 27, 116, language };
+            RawPrinterHelper.SendBytesToPrinter(szPrinterName, intTobyte(code));
+
+
+            return true;
+        }
+
+        //if you want to use decimal values in your methods.
+        public static byte[] intTobyte(int[] data)
+        {
+
+            byte[] byteData = data.Select(x => (byte)x).ToArray(); // coonvert int array to byte
+            return byteData;
+        }
+
     }
 }

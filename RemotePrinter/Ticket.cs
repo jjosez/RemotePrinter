@@ -16,18 +16,14 @@
  * along with RemotePrinter.  If not, see<https://www.gnu.org/licenses/>.
  */
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
 namespace RemotePrinter
 {
     class Ticket
     {
+        public bool abrircajon { get; set; }
         public string coddocument { get; set; }
-        public string name { get; set; }
+        public bool cortarpapel { get; set; }
+        public string name { get; set; }        
         public string text { get; set; }
     }
 }
